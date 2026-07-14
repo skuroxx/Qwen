@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ollama :: terminal</title>
+<style>
+  :root {
+    --bg: #0b0c0a;
+    --bg-panel: #111310;
+    --amber: #ffb000;
+    --amber-dim: #8a5f00;
+    --amber-faint: rgba(255,176,0,0.08);
+    --text: #e8dcc0;
+    --text-dim: #7a7264;
+    --err: #ff5f5f;
+    --ok: #6bff8a;
+    --font: "IBM Plex Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background-image:
+      radial-gradient(ellipse at top, rgba(255,176,0,0.04), transparent 60%);
+  }
+
+  .crt {
+    width: 100%;
+    max-width: 820px;
+    height: 88vh;
+    max-height: 760px;
+    background: var(--bg-panel);
+    border: 1px solid #262a22;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #000, 0 20px 60px rgba(0,0,0,0.6), inset 0 0 120px rgba(255,176,0,0.02);
+    position: relative;
+  }
+
+  .crt::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.06) 3px
+    );
+    mix-blend-mode: multiply;
+    opacity: 0.5;
+  }
+
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: #0e0f0c;
+    border-bottom: 1px solid #262a22;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+
+  .dots { display: flex; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2a2d26; }
+
+  .titlebar .path { flex: 1; text-align: center; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .status .led {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim);
+    box-shadow: none;
+  }
+  .status.online .led { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .status.offline .led { background: var(--err); box-shadow: 0 0 6px var(--err); }
+  .status.pending .led { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 20px;
+    font-size: 13.5px;
+    line-height: 1.6;
+  }
+
+  .log::-webkit-scrollbar { width: 8px; }
+  .log::-webkit-scrollbar-thumb { background: #262a22; border-radius: 4px; }
+  .log::-webkit-scrollbar-track { background: transparent; }
+
+  .line { margin-bottom: 14px; white-space: pre-wrap; word-break: break-word; }
+  .line .prompt { color: var(--amber); }
+  .line .path-user { color: var(--text-dim); }
+  .line.system { color: var(--text-dim); }
+  .line.error { color: var(--err); }
+  .line.assistant .prompt { color: #6bd0ff; }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 15px;
+    background: var(--amber);
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .inputrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid #262a22;
+    background: #0e0f0c;
+  }
+  .inputrow .tag { color: var(--amber); font-size: 13.5px; white-space: nowrap; }
+  .inputrow input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13.5px;
+    caret-color: var(--amber);
+  }
+  .inputrow input::placeholder { color: var(--text-dim); }
+  .inputrow button {
+    background: none;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: var(--font);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    padding: 6px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .inputrow button:hover { background: var(--amber-faint); }
+  .inputrow button:disabled { opacity: 0.35; cursor: default; }
+
+  .cfg-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font);
+  }
+  .cfg-btn:hover { color: var(--amber); }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .overlay.hidden { display: none; }
+
+  .panel {
+    width: 90%;
+    max-width: 420px;
+    background: var(--bg-panel);
+    border: 1px solid var(--amber-dim);
+    border-radius: 6px;
+    padding: 20px;
+  }
+  .panel h3 {
+    margin: 0 0 14px;
+    font-size: 13px;
+    color: var(--amber);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .panel label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    margin-top: 12px;
+    letter-spacing: 0.04em;
+  }
+  .panel input {
+    width: 100%;
+    background: #0b0c0a;
+    border: 1px solid #262a22;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12.5px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    outline: none;
+  }
+  .panel input:focus { border-color: var(--amber-dim); }
+  .panel .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .panel .actions button {
+    background: none;
+    border: 1px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: var(--font);
+    font-size: 11.5px;
+    padding: 7px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .panel .actions button:hover { background: var(--amber-faint); }
+  .panel .actions button.primary { background: var(--amber); color: #1a1300; border-color: var(--amber); }
+  .panel .hint { font-size: 10.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<div class="crt">
+  <div class="titlebar">
+    <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+    <div class="path" id="titlePath">ollama@local :: connecting</div>
+    <div class="status pending" id="statusEl"><span class="led"></span><span id="statusText">checking</span></div>
+    <button class="cfg-btn" id="cfgBtn" title="Settings">[cfg]</button>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div class="inputrow">
+    <span class="tag" id="promptTag">&gt;</span>
+    <input id="input" type="text" placeholder="type a message and hit enter..." autocomplete="off" />
+    <button id="sendBtn">SEND</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="panel">
+    <h3>Connection Settings</h3>
+    <label for="endpointInput">Ollama endpoint URL</label>
+    <input id="endpointInput" placeholder="https://your-tunnel.trycloudflare.com" />
+    <div class="hint">This is the public tunnel URL (cloudflared / ngrok) pointing at your Ollama server's port 11434.</div>
+
+    <label for="modelInput">Model name</label>
+    <input id="modelInput" placeholder="qwen:0.5b" />
+    <div class="hint">Must match a model you've pulled on the server (ollama list).</div>
+
+    <div class="actions">
+      <button id="cancelCfg">CLOSE</button>
+      <button id="saveCfg" class="primary">SAVE + CONNECT</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const log = document.getElementById('log');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('sendBtn');
+  const statusEl = document.getElementById('statusEl');
+  const statusText = document.getElementById('statusText');
+  const titlePath = document.getElementById('titlePath');
+  const cfgBtn = document.getElementById('cfgBtn');
+  const overlay = document.getElementById('overlay');
+  const endpointInput = document.getElementById('endpointInput');
+  const modelInput = document.getElementById('modelInput');
+  const saveCfg = document.getElementById('saveCfg');
+  const cancelCfg = document.getElementById('cancelCfg');
+
+  let ENDPOINT = localStorage.getItem('ollama_endpoint') || '';
+  let MODEL = localStorage.getItem('ollama_model') || 'qwen:0.5b';
+  let history = [];
+  let busy = false;
+
+  function addLine(text, cls) {
+    const div = document.createElement('div');
+    div.className = 'line ' + (cls || '');
+    div.innerHTML = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  function addUserLine(text) {
+    addLine('<span class="prompt">&gt;</span> ' + escapeHtml(text));
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function bootSequence() {
+    const bootLines = [
+      'initializing terminal session...',
+      'checking local storage for saved config...',
+      ENDPOINT ? 'endpoint found: ' + ENDPOINT : 'no endpoint configured -- open [cfg] to set one',
+      'model target: ' + MODEL,
+      'ready.'
+    ];
+    let i = 0;
+    const interval = setInterval(() => {
+      addLine(bootLines[i], 'system');
+      i++;
+      if (i >= bootLines.length) {
+        clearInterval(interval);
+        if (ENDPOINT) pingEndpoint();
+        else setStatus('offline', 'not configured');
+      }
+    }, 220);
+  }
+
+  function setStatus(state, text) {
+    statusEl.className = 'status ' + state;
+    statusText.textContent = text;
+    titlePath.textContent = state === 'online'
+      ? 'ollama@' + hostFromUrl(ENDPOINT)
+      : 'ollama@local :: ' + text;
+  }
+
+  function hostFromUrl(url) {
+    try { return new URL(url).host; } catch (e) { return 'local'; }
+  }
+
+  async function pingEndpoint() {
+    if (!ENDPOINT) { setStatus('offline', 'not configured'); return; }
+    setStatus('pending', 'connecting');
+    try {
+      const res = await fetch(ENDPOINT.replace(/\/$/, '') + '/api/tags', { method: 'GET' });
+      if (res.ok) {
+        setStatus('online', 'connected');
+      } else {
+        setStatus('offline', 'error ' + res.status);
+      }
+    } catch (e) {
+      setStatus('offline', 'unreachable');
+    }
+  }
+
+  async function sendMessage() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+    if (!ENDPOINT) {
+      addLine('no endpoint configured -- click [cfg] to set your ollama tunnel url', 'error');
+      return;
+    }
+    input.value = '';
+    addUserLine(text);
+    history.push({ role: 'user', content: text });
+
+    busy = true;
+    sendBtn.disabled = true;
+    const respDiv = addLine('<span class="prompt">::</span> <span class="cursor"></span>', 'assistant');
+
+    try {
+      const res = await fetch(ENDPOINT.replace(/\/$/, '') + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: history,
+          stream: true
+        })
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error('HTTP ' + res.status);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.message && obj.message.content) {
+              full += obj.message.content;
+              respDiv.innerHTML = '<span class="prompt">::</span> ' + escapeHtml(full) + '<span class="cursor"></span>';
+              log.scrollTop = log.scrollHeight;
+            }
+          } catch (e) { /* ignore partial json */ }
+        }
+      }
+
+      respDiv.innerHTML = '<span class="prompt">::</span> ' + escapeHtml(full);
+      history.push({ role: 'assistant', content: full });
+      setStatus('online', 'connected');
+    } catch (err) {
+      respDiv.remove();
+      addLine('connection failed: ' + err.message, 'error');
+      setStatus('offline', 'unreachable');
+    } finally {
+      busy = false;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  cfgBtn.addEventListener('click', () => {
+    endpointInput.value = ENDPOINT;
+    modelInput.value = MODEL;
+    overlay.classList.remove('hidden');
+  });
+  cancelCfg.addEventListener('click', () => overlay.classList.add('hidden'));
+  saveCfg.addEventListener('click', () => {
+    ENDPOINT = endpointInput.value.trim();
+    MODEL = modelInput.value.trim() || 'qwen:0.5b';
+    localStorage.setItem('ollama_endpoint', ENDPOINT);
+    localStorage.setItem('ollama_model', MODEL);
+    overlay.classList.add('hidden');
+    addLine('config updated -- endpoint: ' + ENDPOINT + ' | model: ' + MODEL, 'system');
+    pingEndpoint();
+  });
+
+  overlay.classList.add('hidden');
+  bootSequence();
+  input.focus();
+
+  // periodic health check
+  setInterval(() => { if (ENDPOINT && !busy) pingEndpoint(); }, 30000);
+})();
+</script>
+
+</body>
+</html>
